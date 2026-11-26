@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NotebookLM 蔵書目録 — スマートランチャー</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Shippori+Mincho:wght@500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            paper: {
+              bg: '#F6F3EC',
+              surface: '#FBF9F4',
+              hover: '#EFEAE0',
+              border: '#DDD7CC',
+            },
+            ink: {
+              main: '#1E1B18',
+              muted: '#6B655D',
+              faint: '#9A9389',
+            },
+            vermilion: {
+              DEFAULT: '#B83B2A',
+              dark: '#D85A46',
+              soft: '#F5E5E2',
+            },
+            night: {
+              bg: '#141210',
+              surface: '#1B1815',
+              hover: '#24201C',
+              border: '#2E2A25',
+              ink: '#EAE4D7',
+              muted: '#9B9285',
+            },
+          },
+          fontFamily: {
+            serif: ['"Shippori Mincho"', '"Hiragino Mincho ProN"', '"Yu Mincho"', 'serif'],
+            mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+            sans: ['"Hiragino Sans"', '"Hiragino Kaku Gothic ProN"', '"Noto Sans JP"', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      overflow-x: hidden;
+      font-feature-settings: "palt" 1;
+    }
+    .index-row {
+      box-shadow: inset 2px 0 0 0 transparent;
+      transition: background-color 0.14s ease, box-shadow 0.14s ease;
+    }
+    .index-row:hover {
+      box-shadow: inset 2px 0 0 0 #B83B2A;
+    }
+    .dark .index-row:hover {
+      box-shadow: inset 2px 0 0 0 #D85A46;
+    }
+    .index-row.is-pinned {
+      box-shadow: inset 2px 0 0 0 #B83B2A;
+    }
+    .dark .index-row.is-pinned {
+      box-shadow: inset 2px 0 0 0 #D85A46;
+    }
+    .cat-btn {
+      border-left: 2px solid transparent;
+      transition: color 0.14s ease, border-left-color 0.14s ease, background-color 0.14s ease;
+    }
+    .cat-btn.is-active {
+      border-left-color: #B83B2A;
+    }
+    .dark .cat-btn.is-active {
+      border-left-color: #D85A46;
+    }
+    .tabular {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-paper-bg text-ink-main dark:bg-night-bg dark:text-night-ink transition-colors duration-200">
+  <div class="max-w-7xl mx-auto min-h-screen flex flex-col lg:flex-row">
+    <!-- Left Sidebar (Fixed Category Index on Desktop, Top Drawer on Mobile) -->
+    <aside class="lg:w-72 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-paper-border dark:border-night-border bg-paper-surface dark:bg-night-surface px-5 py-6 flex flex-col justify-between gap-6">
+      <div class="space-y-6">
+        <!-- Masthead -->
+        <div class="space-y-1.5 pb-4 border-b border-paper-border dark:border-night-border">
+          <div class="flex items-center justify-between gap-2">
+            <p class="font-mono text-[11px] tracking-[0.18em] uppercase text-ink-muted dark:text-night-muted">INDEX / ARCHIVE</p>
+            <button
+              id="btnTheme"
+              type="button"
+              title="紙面（ライト）／夜の書斎（ダーク）を切替"
+              class="font-mono text-[11px] px-2 py-1 border border-paper-border dark:border-night-border text-ink-muted dark:text-night-muted hover:text-ink-main dark:hover:text-night-ink hover:border-ink-main dark:hover:border-night-ink transition whitespace-nowrap"
+            >
+              夜モード
+            </button>
+          </div>
+          <h1 class="font-serif text-2xl font-bold tracking-tight leading-snug">蔵書目録</h1>
+          <p class="text-xs text-ink-muted dark:text-night-muted leading-relaxed">
+            NotebookLM 全巻索引。開いた回数と閲覧順で、よく使う書架が自動で上へ並びます。
+          </p>
+        </div>
+
+        <!-- Category Navigation -->
+        <nav aria-label="カテゴリ目次" class="space-y-1">
+          <div class="flex items-center justify-between pb-1.5">
+            <span class="font-mono text-[11px] tracking-widest uppercase text-ink-muted dark:text-night-muted">書架カテゴリ</span>
+            <button id="btnMobileCatToggle" type="button" class="lg:hidden font-mono text-[11px] text-vermilion dark:text-vermilion-dark underline">
+              開閉
+            </button>
+          </div>
+          <div id="categoryBar" class="space-y-0.5"></div>
+        </nav>
+
+        <!-- Sidebar Quick Filters & Actions -->
+        <div class="pt-4 border-t border-paper-border dark:border-night-border space-y-3">
+          <label class="flex items-center justify-between gap-2 text-xs text-ink-main dark:text-night-ink cursor-pointer select-none py-1">
+            <span class="flex items-center gap-2">
+              <input id="chkPinnedOnly" type="checkbox" class="accent-[#B83B2A] w-3.5 h-3.5" />
+              <span>ピン留めのみ表示</span>
+            </span>
+            <span id="pinnedCountBadge" class="font-mono text-[11px] text-vermilion dark:text-vermilion-dark tabular">0</span>
+          </label>
+
+          <div class="space-y-2">
+            <button
+              id="btnAddNotebook"
+              type="button"
+              class="w-full px-3 py-2 text-xs font-medium bg-ink-main text-paper-surface dark:bg-night-ink dark:text-night-bg hover:bg-vermilion dark:hover:bg-vermilion-dark dark:hover:text-white transition whitespace-nowrap"
+            >
+              ＋ ノート追加
+            </button>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                id="btnExport"
+                type="button"
+                title="ピン留め・利用回数データをJSON書き出し"
+                class="px-2.5 py-2 text-xs font-medium border border-paper-border dark:border-night-border text-ink-main dark:text-night-ink hover:border-ink-main dark:hover:border-night-ink transition whitespace-nowrap"
+              >
+                JSON保存
+              </button>
+              <button
+                id="btnImport"
+                type="button"
+                title="他端末のJSONを読み込んでピン留め・利用回数を同期"
+                class="px-2.5 py-2 text-xs font-medium border border-paper-border dark:border-night-border text-ink-main dark:text-night-ink hover:border-vermilion dark:hover:border-vermilion-dark hover:text-vermilion dark:hover:text-vermilion-dark transition whitespace-nowrap"
+              >
+                JSON読込
+              </button>
+              <input id="importFileInput" type="file" accept=".json,application/json" class="hidden" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer Utilities -->
+      <div class="pt-4 border-t border-paper-border dark:border-night-border flex items-center justify-between text-[11px] text-ink-muted dark:text-night-muted">
+        <span class="font-mono tabular">無制限ピン留め対応</span>
+        <button id="btnResetStats" type="button" class="hover:text-vermilion dark:hover:text-vermilion-dark underline underline-offset-2 transition">
+          回数リセット
+        </button>
+      </div>
+    </aside>
+
+    <!-- Right Main Editorial Index -->
+    <main class="flex-1 min-w-0 px-5 sm:px-8 lg:px-10 py-6 sm:py-8 space-y-8">
+      <!-- Search & Sort Strip -->
+      <section class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-5 border-b border-ink-main/20 dark:border-night-ink/20">
+        <div class="relative flex-1 max-w-xl">
+          <label for="searchInput" class="block font-mono text-[10px] tracking-widest uppercase text-ink-muted dark:text-night-muted mb-1">
+            SEARCH ( / KEY )
+          </label>
+          <div class="relative">
+            <input
+              id="searchInput"
+              type="text"
+              placeholder="書名・カテゴリで絞り込む…"
+              class="w-full pr-8 py-2 text-sm bg-transparent border-b border-paper-border dark:border-night-border focus:border-vermilion dark:focus:border-vermilion-dark focus:outline-none placeholder:text-ink-faint dark:placeholder:text-night-muted/60 transition"
+            />
+            <button
+              id="btnClearSearch"
+              type="button"
+              aria-label="検索をクリア"
+              class="hidden absolute right-1 top-1/2 -translate-y-1/2 font-mono text-xs text-ink-muted hover:text-ink-main dark:hover:text-night-ink px-1"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2.5 shrink-0">
+          <label for="sortSelect" class="font-mono text-[10px] tracking-widest uppercase text-ink-muted dark:text-night-muted whitespace-nowrap">
+            SORT
+          </label>
+          <select
+            id="sortSelect"
+            class="py-2 pl-2 pr-7 text-xs font-medium bg-paper-surface dark:bg-night-surface border border-paper-border dark:border-night-border focus:border-vermilion dark:focus:border-vermilion-dark focus:outline-none"
+          >
+            <option value="smart">自動上位（ピン＋頻度＋最近）</option>
+            <option value="clicks">よく使う順（クリック数）</option>
+            <option value="recent">最近開いた順</option>
+            <option value="sources">ソース数が多い順</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- Top Used & Pinned Shelf (Editorial 2-Column Ledger) -->
+      <section id="quickShelfSection" class="space-y-3">
+        <div class="flex items-baseline justify-between gap-2 pb-2 border-b border-paper-border dark:border-night-border">
+          <div class="flex items-baseline gap-3">
+            <h2 class="font-serif text-lg sm:text-xl font-bold tracking-tight">手元の書架</h2>
+            <span id="quickShelfBadge" class="font-mono text-[11px] text-vermilion dark:text-vermilion-dark tabular">TOP 8</span>
+          </div>
+          <button id="btnToggleQuick" type="button" class="font-mono text-[11px] text-ink-muted dark:text-night-muted hover:text-ink-main dark:hover:text-night-ink transition">
+            折りたたむ
+          </button>
+        </div>
+        <div id="quickShelfGrid" class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-0"></div>
+      </section>
+
+      <!-- Full Editorial Index List -->
+      <section class="space-y-3">
+        <div class="flex items-baseline justify-between gap-2 pb-2 border-b border-ink-main/30 dark:border-night-ink/30">
+          <div class="flex items-baseline gap-3 min-w-0">
+            <h2 id="mainGridTitle" class="font-serif text-lg sm:text-xl font-bold tracking-tight truncate">すべての書架</h2>
+            <span id="resultCount" class="font-mono text-xs text-ink-muted dark:text-night-muted tabular shrink-0"></span>
+          </div>
+          <div class="hidden sm:grid grid-cols-[6.5rem_4.5rem_5.5rem_3.5rem] gap-3 font-mono text-[10px] tracking-wider uppercase text-ink-muted dark:text-night-muted text-right shrink-0">
+            <span>カテゴリ</span>
+            <span>ソース</span>
+            <span>最終閲覧</span>
+            <span>固定</span>
+          </div>
+        </div>
+
+        <div id="notebookGrid" class="divide-y divide-paper-border dark:divide-night-border"></div>
+
+        <div id="emptyState" class="hidden py-14 text-center border-b border-paper-border dark:border-night-border">
+          <p class="font-serif text-base text-ink-muted dark:text-night-muted">該当する書架が見当たりませんでした。</p>
+          <p class="text-xs text-ink-faint dark:text-night-muted/70 mt-1">検索語を変えるか、左の「すべて」から選び直してみてください。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Add Notebook Modal -->
+  <div id="addModal" class="hidden fixed inset-0 z-50 bg-ink-main/60 backdrop-blur-[2px] flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-paper-surface dark:bg-night-surface border border-paper-border dark:border-night-border p-6 space-y-5 shadow-xl">
+      <div class="flex items-center justify-between pb-3 border-b border-paper-border dark:border-night-border">
+        <h3 class="font-serif text-lg font-bold">新しい書架を登録</h3>
+        <button id="btnCloseModal" type="button" class="font-mono text-sm text-ink-muted hover:text-ink-main dark:hover:text-night-ink">✕</button>
+      </div>
+      <form id="addNotebookForm" class="space-y-4">
+        <div>
+          <label for="inputTitle" class="block font-mono text-[11px] uppercase tracking-wider text-ink-muted dark:text-night-muted mb-1">ノートブック名</label>
+          <input id="inputTitle" type="text" required placeholder="例：SS_新シリーズ" class="w-full px-3 py-2 text-sm bg-paper-bg dark:bg-night-bg border border-paper-border dark:border-night-border focus:border-vermilion dark:focus:border-vermilion-dark focus:outline-none" />
+        </div>
+        <div>
+          <label for="inputUrl" class="block font-mono text-[11px] uppercase tracking-wider text-ink-muted dark:text-night-muted mb-1">URL</label>
+          <input id="inputUrl" type="url" required placeholder="https://gemini.google.com/notebook/..." class="w-full px-3 py-2 text-sm font-mono bg-paper-bg dark:bg-night-bg border border-paper-border dark:border-night-border focus:border-vermilion dark:focus:border-vermilion-dark focus:outline-none" />
+        </div>
+        <div>
+          <label for="inputCategory" class="block font-mono text-[11px] uppercase tracking-wider text-ink-muted dark:text-night-muted mb-1">カテゴリ</label>
+          <select id="inputCategory" class="w-full px-3 py-2 text-sm bg-paper-bg dark:bg-night-bg border border-paper-border dark:border-night-border focus:border-vermilion dark:focus:border-vermilion-dark focus:outline-none">
+            <option value="統括・生活">統括・生活</option>
+            <option value="まどマギSS・二次創作">まどマギSS・二次創作</option>
+            <option value="商業・一次創作">商業・一次創作</option>
+            <option value="創作ノウハウ・資料">創作ノウハウ・資料</option>
+            <option value="司法試験・公務員試験">司法試験・公務員試験</option>
+            <option value="読書・作品リファレンス">読書・作品リファレンス</option>
+            <option value="哲学・思考・その他">哲学・思考・その他</option>
+          </select>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="btnCancelModal" type="button" class="px-4 py-2 text-xs font-medium border border-paper-border dark:border-night-border text-ink-muted hover:text-ink-main dark:hover:text-night-ink">キャンセル</button>
+          <button type="submit" class="px-4 py-2 text-xs font-medium bg-ink-main text-paper-surface dark:bg-night-ink dark:text-night-bg hover:bg-vermilion dark:hover:bg-vermilion-dark dark:hover:text-white transition">追加する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="hidden fixed bottom-5 right-5 z-50 px-4 py-2.5 text-xs font-medium bg-ink-main text-paper-surface dark:bg-night-ink dark:text-night-bg border-l-2 border-vermilion dark:border-vermilion-dark shadow-lg"></div>
+
+  <script>
+    const STORAGE_KEY = 'notebooklm_smart_launcher_v1';
+
+    const CATEGORIES = [
+      { id: 'ALL', label: 'すべて', short: '全書架' },
+      { id: '統括・生活', label: '統括・生活', short: '統括' },
+      { id: 'まどマギSS・二次創作', label: 'まどマギSS・二次創作', short: '二次創作' },
+      { id: '商業・一次創作', label: '商業・一次創作', short: '一次創作' },
+      { id: '創作ノウハウ・資料', label: '創作ノウハウ・資料', short: 'ノウハウ' },
+      { id: '司法試験・公務員試験', label: '司法試験・公務員試験', short: '法律・試験' },
+      { id: '読書・作品リファレンス', label: '読書・作品リファレンス', short: '読書資料' },
+      { id: '哲学・思考・その他', label: '哲学・思考・その他', short: '哲学・他' },
+    ];
+
+    // === NOTEBOOKS_DATA_START ===
+    const DEFAULT_NOTEBOOKS = [
+      // 統括・生活
+      { id: '0e34ea3b', title: '01メンタル・生活メモ', url: 'https://gemini.google.com/notebook/0e34ea3b-054e-4a69-b0a4-d79ee058663a', category: '統括・生活', sources: 2, lastViewed: '2026-11-26T03:56:34Z' },
+      { id: 'fbdca0a7', title: '投資関係', url: 'https://gemini.google.com/notebook/fbdca0a7-f778-43cc-824d-41e04b24b9f2', category: '統括・生活', sources: 2, lastViewed: '2026-11-26T03:56:50Z' },
+      { id: '212277c6', title: 'バズ考察ラボ', url: 'https://gemini.google.com/notebook/212277c6-7048-4095-a6f1-27eed9a941a0', category: '統括・生活', sources: 2, lastViewed: '2026-11-26T03:57:55Z' },
+      { id: '1c6957b2', title: '30AI使い方', url: 'https://gemini.google.com/notebook/1c6957b2-1a4b-4d3a-a5b5-72f8cefa262e', category: '統括・生活', sources: 2, lastViewed: '2026-11-25T23:31:03Z' },
+      { id: '51b39378', title: 'プラン・ひとメモ', url: 'https://gemini.google.com/notebook/51b39378-69a3-4b44-9f53-6498a1bfeeee', category: '統括・生活', sources: 3, lastViewed: '2026-11-26T00:30:03Z' },
+      { id: '6a068ca0', title: '01インタビュー文字起こし', url: 'https://gemini.google.com/notebook/6a068ca0-9e9b-4228-9bfc-d6a88a9200e6', category: '統括・生活', sources: 3, lastViewed: '2026-11-26T00:33:50Z' },
+      { id: '894bf6d0', title: '01音声ジャーナリング', url: 'https://gemini.google.com/notebook/894bf6d0-127f-4f57-9a81-0860027b5bb1', category: '統括・生活', sources: 1, lastViewed: '2026-11-18T15:26:49Z' },
+      { id: '25434448', title: '01ブックマーク', url: 'https://gemini.google.com/notebook/25434448-837f-4260-b7cc-8ae982ad9073', category: '統括・生活', sources: 1, lastViewed: '2026-01-17T16:16:26Z' },
+
+      // まどマギSS・二次創作
+      { id: '6ae0cffc', title: 'GROTESQQQUE', url: 'https://gemini.google.com/notebook/6ae0cffc-ce94-4f79-b623-98e71a1be8af', category: 'まどマギSS・二次創作', sources: 3, lastViewed: '2026-11-26T03:57:32Z' },
+      { id: '93c732bf', title: 'SS_愛憎まどか世界シリーズ', url: 'https://gemini.google.com/notebook/93c732bf-5447-4e20-960c-69ed00394a52', category: 'まどマギSS・二次創作', sources: 1, lastViewed: '2026-11-25T23:31:45Z' },
+      { id: 'fa88d362', title: 'SS_箱庭管理まどか_廻天後IF', url: 'https://gemini.google.com/notebook/fa88d362-66c8-4790-8c09-f89f26e84c75', category: 'まどマギSS・二次創作', sources: 1, lastViewed: '2026-11-26T00:40:02Z' },
+      { id: '6b7bad46', title: 'SS_ほむさや（合同・単発IF）', url: 'https://gemini.google.com/notebook/6b7bad46-05fc-4824-b988-a152127b9b74', category: 'まどマギSS・二次創作', sources: 2, lastViewed: '2026-11-26T00:40:48Z' },
+      { id: '4d0c8eef', title: 'SS_まどマギ個別IF・短編', url: 'https://gemini.google.com/notebook/4d0c8eef-ae82-4bee-a39c-f64d3d958c64', category: 'まどマギSS・二次創作', sources: 2, lastViewed: '2026-11-26T00:40:50Z' },
+      { id: 'e3eddc62', title: '二次創作', url: 'https://gemini.google.com/notebook/e3eddc62-ac9c-425e-852f-ed4d77295fea', category: 'まどマギSS・二次創作', sources: 3, lastViewed: '2026-11-25T23:30:50Z' },
+
+      // 商業・一次創作
+      { id: '14e93602', title: 'VTuberプロジェクト', url: 'https://gemini.google.com/notebook/14e93602-aec6-4d16-8281-d484e0fb04be', category: '商業・一次創作', sources: 1, lastViewed: '2026-11-26T03:56:55Z' },
+      { id: '573713ba', title: '小説総合', url: 'https://gemini.google.com/notebook/573713ba-ab98-4322-b0cc-23afe6111883', category: '商業・一次創作', sources: 37, lastViewed: '2026-11-26T03:34:58Z' },
+      { id: '14aa4c73', title: '31虫めづる姫君の死因究明録：設定と物語の全容', url: 'https://gemini.google.com/notebook/14aa4c73-2581-4613-9935-834d831c0f73', category: '商業・一次創作', sources: 15, lastViewed: '2025-12-29T08:47:12Z' },
+      { id: '65cd9352', title: '小説執筆（参照指定）使用：虫めづる姫君（〜第2章）', url: 'https://gemini.google.com/notebook/65cd9352-8f70-47c3-b77d-e93398753682', category: '商業・一次創作', sources: 12, lastViewed: '2026-09-14T05:47:33Z' },
+      { id: '88faa08d', title: '悪役令嬢カウンセラーの溺愛', url: 'https://gemini.google.com/notebook/88faa08d-3838-4878-a5d3-b79b537d300b', category: '商業・一次創作', sources: 12, lastViewed: '2026-11-18T01:44:20Z' },
+      { id: '6c3529b2', title: '祝・推し', url: 'https://gemini.google.com/notebook/6c3529b2-8c40-4cba-a7d5-e6820644f362', category: '商業・一次創作', sources: 3, lastViewed: '2025-10-22T08:19:42Z' },
+      { id: '2a4df0a4', title: 'メンヘラ教室（76件・保留中）', url: 'https://gemini.google.com/notebook/2a4df0a4-da9f-426f-8cdb-5e879bbf34bd', category: '商業・一次創作', sources: 76, lastViewed: '2026-11-23T01:06:17Z' },
+      { id: 'ab785bfe', title: 'メンヘラ教室（31件・保留中）', url: 'https://gemini.google.com/notebook/ab785bfe-799e-4566-a3b4-4aaccb69683e', category: '商業・一次創作', sources: 31, lastViewed: '2026-08-14T10:22:56Z' },
+      { id: 'e6371aa4', title: 'アンドロメダアンドロイドV2', url: 'https://gemini.google.com/notebook/e6371aa4-bdc6-45b0-bf6a-1c3a380702c2', category: '商業・一次創作', sources: 1, lastViewed: '2026-11-25T23:33:52Z' },
+      { id: 'd7ea31d8', title: 'アンドロメダアンドロイド', url: 'https://gemini.google.com/notebook/d7ea31d8-0232-4775-878b-1e58fda2f674', category: '商業・一次創作', sources: 3, lastViewed: '2026-11-25T23:33:51Z' },
+      { id: '1f7d3c71', title: '31棺桶運びのクロイツ', url: 'https://gemini.google.com/notebook/1f7d3c71-1c54-4a20-8d17-6d7ef0d6d3f4', category: '商業・一次創作', sources: 2, lastViewed: '2025-12-29T08:48:09Z' },
+      { id: '339cd74f', title: 'カップル異世界転生執筆', url: 'https://gemini.google.com/notebook/339cd74f-cf3f-4def-b982-2be31af4e922', category: '商業・一次創作', sources: 29, lastViewed: '2025-11-17T09:00:04Z' },
+      { id: '70db036e', title: 'ポストファンタジー世界観作成案', url: 'https://gemini.google.com/notebook/70db036e-5bf1-4e58-b654-c260012371d7', category: '商業・一次創作', sources: 2, lastViewed: '2026-04-12T08:01:24Z' },
+      { id: '73e0f422', title: '霊脈海譚世界観', url: 'https://gemini.google.com/notebook/73e0f422-0958-4306-a833-d062101a53da', category: '商業・一次創作', sources: 2, lastViewed: '2026-04-02T13:55:40Z' },
+      { id: '13387d65', title: 'ブログ', url: 'https://gemini.google.com/notebook/13387d65-fd50-46ec-bb8c-126264317580', category: '商業・一次創作', sources: 1, lastViewed: '2026-11-19T10:25:38Z' },
+      { id: '3ae4c66c', title: 'note記事作成', url: 'https://gemini.google.com/notebook/3ae4c66c-76fd-46c0-a835-a080c5a259b7', category: '商業・一次創作', sources: 1, lastViewed: '2026-11-19T10:19:43Z' },
+
+      // 創作ノウハウ・資料
+      { id: '590273cf', title: '21創作ノウハウ', url: 'https://gemini.google.com/notebook/590273cf-bcf2-4458-a92b-a26597807bee', category: '創作ノウハウ・資料', sources: 61, lastViewed: '2026-04-12T07:51:57Z' },
+      { id: '0e270dd9', title: '21小説‐ストーリー', url: 'https://notebooklm.google.com/notebook/0e270dd9-b90e-453e-8378-a4d591011720', category: '創作ノウハウ・資料', sources: 13, lastViewed: '2026-11-25T12:19:51Z' },
+      { id: 'b47615a2', title: '21小説‐キャラ', url: 'https://gemini.google.com/notebook/b47615a2-b4c7-4439-88c5-a91ed0656bb5', category: '創作ノウハウ・資料', sources: 8, lastViewed: '2026-11-25T23:33:53Z' },
+      { id: 'e02a184a', title: '21小説‐ミステリー', url: 'https://gemini.google.com/notebook/e02a184a-1635-40e2-b8cd-add7d617c914', category: '創作ノウハウ・資料', sources: 4, lastViewed: '2026-11-25T23:33:54Z' },
+      { id: 'd59e3fd2', title: '21小説‐世界観', url: 'https://notebooklm.google.com/notebook/d59e3fd2-ddd4-437d-b4d1-9b7bb2c90272', category: '創作ノウハウ・資料', sources: 10, lastViewed: '2026-03-06T05:17:40Z' },
+      { id: 'fb80265f', title: '21小説-ジャンル別', url: 'https://notebooklm.google.com/notebook/fb80265f-5779-4ae2-90f5-2bff279f3228', category: '創作ノウハウ・資料', sources: 8, lastViewed: '2026-03-16T05:08:44Z' },
+      { id: 'b53c93bc', title: '21小説-表現', url: 'https://notebooklm.google.com/notebook/b53c93bc-bd4f-4399-89f9-ee8a7972a735', category: '創作ノウハウ・資料', sources: 10, lastViewed: '2026-03-16T04:54:49Z' },
+      { id: '2a91ec16', title: '21世界観-中華', url: 'https://gemini.google.com/notebook/2a91ec16-305c-4481-8188-658bec8f288e', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2025-12-28T05:17:46Z' },
+      { id: 'aaa3b13b', title: 'ミステリ', url: 'https://gemini.google.com/notebook/aaa3b13b-5a88-4cf1-af6f-6c4fcd70ab80', category: '創作ノウハウ・資料', sources: 18, lastViewed: '2026-11-25T23:33:53Z' },
+      { id: 'db7e60c8', title: '異世界ファンタジー設定全書', url: 'https://gemini.google.com/notebook/db7e60c8-2c15-40c8-b8a5-b0a43d4352ff', category: '創作ノウハウ・資料', sources: 19, lastViewed: '2025-12-07T05:59:30Z' },
+      { id: 'b233916a', title: 'SAVE THE CATの法則', url: 'https://gemini.google.com/notebook/b233916a-bb08-435b-bdef-d1829b4ed6bd', category: '創作ノウハウ・資料', sources: 11, lastViewed: '2025-07-24T05:45:30Z' },
+      { id: 'e362f8e6', title: 'AIと対話する創作術：物語の設計と生成テクニック', url: 'https://gemini.google.com/notebook/e362f8e6-9a95-4636-b8f6-4f848d91072b', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2026-03-06T05:12:14Z' },
+      { id: '0e71a808', title: 'ミステリーの書き方：巨匠たちが語る創作の極意', url: 'https://gemini.google.com/notebook/0e71a808-d603-41f7-841c-bc2eb931f840', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2026-01-21T19:20:57Z' },
+      { id: '5fcbd9b6', title: 'シナリオ・センター式 物語のつくり方 表現技術の極意', url: 'https://gemini.google.com/notebook/5fcbd9b6-9526-4bd1-88bc-3aac6661fa36', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2026-01-17T06:55:37Z' },
+      { id: '2a33e49d', title: '言語化するための小説思考', url: 'https://gemini.google.com/notebook/2a33e49d-a78f-41e6-a9b2-279064e4f1ef', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2026-01-08T09:55:48Z' },
+      { id: '61bfe3b1', title: '中山七里の超合理的ミステリー創作術と作家の矜持', url: 'https://gemini.google.com/notebook/61bfe3b1-5d75-4a16-8a1a-bcd706e14cef', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2026-01-03T08:49:22Z' },
+      { id: '4b4baa81', title: '書けないから始める小説の書き方', url: 'https://gemini.google.com/notebook/4b4baa81-5b97-48f1-ba45-83755e35cd5d', category: '創作ノウハウ・資料', sources: 3, lastViewed: '2025-11-25T10:02:13Z' },
+      { id: 'c6e36629', title: '売れる作家の全技術', url: 'https://gemini.google.com/notebook/c6e36629-f2d0-406f-a030-0bb3b890b27f', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2025-11-25T09:17:28Z' },
+      { id: 'eab03e70', title: '売れる小説の書き方と創作の秘訣', url: 'https://gemini.google.com/notebook/eab03e70-b61e-45de-ab49-00ca53113ba2', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2025-11-17T06:38:42Z' },
+      { id: '2635551c', title: 'ソーンダーズ先生の小説教室', url: 'https://gemini.google.com/notebook/2635551c-15ef-43a3-970f-770775c006cf', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2025-11-07T02:15:16Z' },
+      { id: '15c8a30c', title: '街場の文体論', url: 'https://gemini.google.com/notebook/15c8a30c-0999-47e9-ade4-337bb4cdacbd', category: '創作ノウハウ・資料', sources: 1, lastViewed: '2025-11-03T11:32:29Z' },
+
+      // 司法試験・公務員試験
+      { id: 'f14dba88', title: '司法試験総合', url: 'https://gemini.google.com/notebook/f14dba88-c1da-456a-9c70-a0d246a874e6', category: '司法試験・公務員試験', sources: 17, lastViewed: '2026-11-25T23:30:59Z' },
+      { id: '0c6fa7dd', title: '公務員試験プラン', url: 'https://gemini.google.com/notebook/0c6fa7dd-ae66-46c3-bffc-0740c84e2a86', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-11-25T23:31:03Z' },
+      { id: 'a4d77a26', title: '01司法試験過去問・論証集・基本書・勉強法', url: 'https://gemini.google.com/notebook/a4d77a26-edc2-4e81-8df9-f22dfb8bd933', category: '司法試験・公務員試験', sources: 106, lastViewed: '2026-11-25T23:30:50Z' },
+      { id: 'd9094c91', title: '01論証集＋過去問', url: 'https://gemini.google.com/notebook/d9094c91-38ce-4b58-a3e5-772ccb059ed3', category: '司法試験・公務員試験', sources: 15, lastViewed: '2025-12-15T22:39:35Z' },
+      { id: 'b1dd71dd', title: '30司法試験勉強法', url: 'https://gemini.google.com/notebook/b1dd71dd-841a-4664-b190-b3325b52a78d', category: '司法試験・公務員試験', sources: 7, lastViewed: '2026-11-16T14:37:09Z' },
+      { id: 'f3b4c73e', title: '論文処理手順２０２６', url: 'https://gemini.google.com/notebook/f3b4c73e-8a0e-4f99-916f-100f95ce6f9b', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-11-16T14:37:08Z' },
+      { id: '11ce0a85', title: '18司法試験過去問', url: 'https://gemini.google.com/notebook/11ce0a85-8147-479c-8a64-1f04fcc6997f', category: '司法試験・公務員試験', sources: 38, lastViewed: '2025-11-22T14:21:21Z' },
+      { id: 'db8f001a', title: '18重要問題習得講座', url: 'https://gemini.google.com/notebook/db8f001a-5087-4f33-a84b-75a594bbeaef', category: '司法試験・公務員試験', sources: 8, lastViewed: '2026-01-21T18:42:36Z' },
+      { id: 'a9a9aced', title: '18一問一答', url: 'https://gemini.google.com/notebook/a9a9aced-42a5-4a2f-b655-d2ab1cd669d9', category: '司法試験・公務員試験', sources: 4, lastViewed: '2025-11-20T04:34:37Z' },
+      { id: 'abd5c983', title: '国家総合職 専門試験 法律区分 過去問題集', url: 'https://gemini.google.com/notebook/abd5c983-b778-4429-8975-0748bd2e5ab0', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-02-04T06:51:22Z' },
+      { id: 'c08c850a', title: '10倒産法', url: 'https://gemini.google.com/notebook/c08c850a-e3be-4cab-8886-8309f7a188c1', category: '司法試験・公務員試験', sources: 105, lastViewed: '2026-04-11T10:50:51Z' },
+      { id: '1b1943dd', title: '10重問倒産法', url: 'https://gemini.google.com/notebook/1b1943dd-5915-4b96-a1c6-787ec5a8726a', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-01-31T14:12:38Z' },
+      { id: '9a6f4df1', title: '11憲法ー人権', url: 'https://gemini.google.com/notebook/9a6f4df1-f9c6-42a9-8276-dafe66d96758', category: '司法試験・公務員試験', sources: 207, lastViewed: '2026-01-22T16:57:54Z' },
+      { id: '8e3ce536', title: '11憲法－統治', url: 'https://gemini.google.com/notebook/8e3ce536-514b-4435-9f8f-524ee0e03088', category: '司法試験・公務員試験', sources: 199, lastViewed: '2026-01-22T16:57:54Z' },
+      { id: 'aa8a6290', title: '11重問憲法', url: 'https://gemini.google.com/notebook/aa8a6290-6e58-4e26-9209-66571699c8b0', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-01-22T17:21:46Z' },
+      { id: 'bb1d40bd', title: 'TKC短答憲法', url: 'https://gemini.google.com/notebook/bb1d40bd-b69b-4a93-a777-db42b1837d5b', category: '司法試験・公務員試験', sources: 119, lastViewed: '2026-03-05T21:20:40Z' },
+      { id: '501a028e', title: '12行政法', url: 'https://gemini.google.com/notebook/501a028e-2c00-408a-999f-0ec0c5d85612', category: '司法試験・公務員試験', sources: 252, lastViewed: '2026-01-25T19:42:23Z' },
+      { id: '87cd11fb', title: '12重問行政法', url: 'https://gemini.google.com/notebook/87cd11fb-6310-440c-9bc7-c616351db124', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-01-22T17:21:46Z' },
+      { id: '20ccdb7e', title: '13民法', url: 'https://gemini.google.com/notebook/20ccdb7e-3ae1-446c-90c5-560abb5910e5', category: '司法試験・公務員試験', sources: 86, lastViewed: '2026-02-05T07:02:14Z' },
+      { id: 'e28d32ab', title: '13重問民法', url: 'https://gemini.google.com/notebook/e28d32ab-ac5c-40d5-9065-9249fb3caa43', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-02-17T04:10:34Z' },
+      { id: '90d189fa', title: 'TKC短答民法', url: 'https://gemini.google.com/notebook/90d189fa-db27-437e-8bd1-1679c02bec58', category: '司法試験・公務員試験', sources: 230, lastViewed: '2026-03-21T08:20:42Z' },
+      { id: 'f4053e13', title: '民法3 担保物権 - 鳥山泰志 & 藤澤治奈', url: 'https://gemini.google.com/notebook/f4053e13-0fff-44b8-b495-565cfea9da86', category: '司法試験・公務員試験', sources: 1, lastViewed: '2025-09-07T17:08:52Z' },
+      { id: '2570b7a8', title: '民法4 債権総論（第2版）', url: 'https://gemini.google.com/notebook/2570b7a8-0ee0-4ea8-b981-4d57745a55c7', category: '司法試験・公務員試験', sources: 1, lastViewed: '2025-09-08T06:56:26Z' },
+      { id: 'c9b3f906', title: 'Civil Law Lecture: Real and Security Rights', url: 'https://gemini.google.com/notebook/c9b3f906-b8a7-45f3-b292-88b9a744ac5b', category: '司法試験・公務員試験', sources: 1, lastViewed: '2025-09-08T07:09:29Z' },
+      { id: 'af9da96e', title: 'General Principles of Civil Law I', url: 'https://gemini.google.com/notebook/af9da96e-beb2-407a-b5fb-bd3aa9079a8a', category: '司法試験・公務員試験', sources: 1, lastViewed: '2025-09-08T07:03:00Z' },
+      { id: 'eea08d0f', title: '14商法', url: 'https://gemini.google.com/notebook/eea08d0f-e178-4ae3-8c64-c99b9d57d863', category: '司法試験・公務員試験', sources: 119, lastViewed: '2026-03-01T01:11:57Z' },
+      { id: '3ab84f27', title: '14重問商法', url: 'https://gemini.google.com/notebook/3ab84f27-6de0-4ec2-b3ef-3c48ff854839', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-01-22T17:21:46Z' },
+      { id: '40030231', title: '15民事訴訟法', url: 'https://gemini.google.com/notebook/40030231-49c1-44b8-95a1-c43dcde46780', category: '司法試験・公務員試験', sources: 128, lastViewed: '2026-01-22T16:57:54Z' },
+      { id: 'f5af5035', title: '15重問民事訴訟法', url: 'https://gemini.google.com/notebook/f5af5035-dfef-4a08-bc64-2d3843340b2f', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-01-22T17:21:46Z' },
+      { id: '68ec909c', title: '16刑法', url: 'https://gemini.google.com/notebook/68ec909c-6774-45fd-a9f1-1ddc1bee3f1e', category: '司法試験・公務員試験', sources: 236, lastViewed: '2026-01-22T16:57:55Z' },
+      { id: 'a0ee0758', title: '16重問刑法', url: 'https://gemini.google.com/notebook/a0ee0758-455d-4c5a-9e8e-9eec81b5a9bb', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-01-22T17:21:46Z' },
+      { id: '93b6b98b', title: 'TKC短答刑法', url: 'https://gemini.google.com/notebook/93b6b98b-c061-4fc2-a9d2-d89009ccabfa', category: '司法試験・公務員試験', sources: 121, lastViewed: '2026-03-05T21:20:44Z' },
+      { id: '4b9253a2', title: '17刑事訴訟法', url: 'https://gemini.google.com/notebook/4b9253a2-ef14-4c18-9ef1-7d9fb2eff445', category: '司法試験・公務員試験', sources: 132, lastViewed: '2026-01-22T16:57:53Z' },
+      { id: 'bdd7ec25', title: '17重問刑事訴訟法', url: 'https://gemini.google.com/notebook/bdd7ec25-9b02-49bc-9e81-ed6e4fde75b0', category: '司法試験・公務員試験', sources: 1, lastViewed: '2026-01-31T12:28:43Z' },
+      { id: 'b4533443', title: '法哲学', url: 'https://gemini.google.com/notebook/b4533443-3181-410d-b80c-035ec1a89bce', category: '司法試験・公務員試験', sources: 14, lastViewed: '2026-01-22T16:37:28Z' },
+      { id: 'ae18f033', title: 'The Essential Guide to Judicial Scrivener Law', url: 'https://gemini.google.com/notebook/ae18f033-74a2-4063-90db-b508604acc91', category: '司法試験・公務員試験', sources: 1, lastViewed: '2025-07-22T14:55:01Z' },
+
+      // 読書・作品リファレンス
+      { id: '798e8dbf', title: 'ライトノベル作品集', url: 'https://gemini.google.com/notebook/798e8dbf-5949-4622-84ac-c0e64a6bdecf', category: '読書・作品リファレンス', sources: 20, lastViewed: '2025-11-25T09:27:42Z' },
+      { id: '897f93df', title: 'エンバーミング・マジック 魔法を殺す魔法', url: 'https://gemini.google.com/notebook/897f93df-c342-4581-9c4f-ed42a24e64bd', category: '読書・作品リファレンス', sources: 1, lastViewed: '2026-11-25T23:33:50Z' },
+      { id: '1088a4af', title: '青春ブタ野郎シリーズ：合本版（第1弾〜第15弾）', url: 'https://gemini.google.com/notebook/1088a4af-9310-44f8-8c47-a4cd0f80a8bf', category: '読書・作品リファレンス', sources: 1, lastViewed: '2026-04-11T10:33:53Z' },
+      { id: '5fc276b6', title: 'ココロコネクト 合本版 全11巻', url: 'https://gemini.google.com/notebook/5fc276b6-b713-4b51-a8e5-c71203a2d9c7', category: '読書・作品リファレンス', sources: 1, lastViewed: '2026-03-12T06:45:34Z' },
+      { id: '06074572', title: '伝奇集：迷宮と鏡の幻想録', url: 'https://gemini.google.com/notebook/06074572-a094-47f7-b80d-1901fc860094', category: '読書・作品リファレンス', sources: 1, lastViewed: '2026-02-01T19:56:52Z' },
+      { id: '3577c899', title: '構築された世界と正しい私', url: 'https://gemini.google.com/notebook/3577c899-4276-44c7-a980-4ea530ea62a9', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-12-28T05:16:56Z' },
+      { id: '9a7e7601', title: '帝都物語：魔術と震災の予兆', url: 'https://gemini.google.com/notebook/9a7e7601-fe6d-48c6-ba01-bd91f6d0134c', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-12-28T05:16:45Z' },
+      { id: '21f57737', title: 'フェアリーメイド 1.傷だらけの妖精職人と壊れかけの人工妖精', url: 'https://gemini.google.com/notebook/21f57737-fefe-41bf-aafa-91af1a8bb795', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-12-20T09:29:33Z' },
+      { id: '488ea687', title: '巡る冬の果てで、君の名前を呼び続けた', url: 'https://gemini.google.com/notebook/488ea687-0852-43b6-a0f9-800e78877af3', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-12-19T13:47:50Z' },
+      { id: '8fe5385e', title: 'とらドラ！: 恋愛と友情の葛藤', url: 'https://gemini.google.com/notebook/8fe5385e-5bca-40bf-bcd8-4cce20e82816', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-12-08T13:09:53Z' },
+      { id: '6867ff8c', title: '魔法科高校の劣等生：達也と深雪の日常', url: 'https://gemini.google.com/notebook/6867ff8c-7507-43e3-942a-bca867258afb', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-12-07T06:12:16Z' },
+      { id: '3b4a2f1f', title: 'スレイヤーズ：全15巻', url: 'https://gemini.google.com/notebook/3b4a2f1f-982a-4a79-b6ee-dab590468ebd', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-12-07T06:01:26Z' },
+      { id: '1a06c9c8', title: 'イマリさんは旅上戸', url: 'https://gemini.google.com/notebook/1a06c9c8-41c6-4253-93d9-312bac3e504f', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-11-30T03:55:36Z' },
+      { id: '500083b3', title: 'この素晴らしい世界に祝福を！', url: 'https://gemini.google.com/notebook/500083b3-e4b0-407d-a716-e5155be7d227', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-11-26T00:35:25Z' },
+      { id: '31c30dc1', title: '薬屋のひとりごと', url: 'https://gemini.google.com/notebook/31c30dc1-16b0-44d7-8879-50fce8048570', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-11-25T06:22:05Z' },
+      { id: '1208da71', title: 'シャドウ・アサシンズ・ワールド', url: 'https://gemini.google.com/notebook/1208da71-2cbf-4759-965f-68c7022caca1', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-11-09T10:52:41Z' },
+      { id: '58e89fd2', title: 'シンクロニシティ 法医昆虫学捜査官', url: 'https://gemini.google.com/notebook/58e89fd2-1bcb-4f9b-987f-90f4b9901d17', category: '読書・作品リファレンス', sources: 7, lastViewed: '2025-11-02T00:47:44Z' },
+      { id: '384fc41e', title: 'Hunchback: A Life in Ingresside', url: 'https://gemini.google.com/notebook/384fc41e-b54d-40ad-920e-0874112df57a', category: '読書・作品リファレンス', sources: 1, lastViewed: '2025-07-22T16:39:21Z' },
+
+      // 哲学・思考・その他
+      { id: '730c6f8b', title: '哲学', url: 'https://gemini.google.com/notebook/730c6f8b-145f-49a9-89b1-6b34b9327363', category: '哲学・思考・その他', sources: 22, lastViewed: '2026-01-06T09:02:09Z' },
+      { id: 'f5318f1e', title: '政策の哲学：公共政策の実在論的理論', url: 'https://gemini.google.com/notebook/f5318f1e-cb21-4938-b857-137608ee73f7', category: '哲学・思考・その他', sources: 1, lastViewed: '2026-11-25T23:33:51Z' },
+      { id: '22a60c95', title: 'センスの哲学', url: 'https://gemini.google.com/notebook/22a60c95-afc3-4b1f-99ec-82ae74691eb2', category: '哲学・思考・その他', sources: 1, lastViewed: '2026-11-25T23:33:50Z' },
+      { id: 'cba5f8b4', title: '30自己啓発', url: 'https://gemini.google.com/notebook/cba5f8b4-c2aa-436a-8ed3-35dbb68c825d', category: '哲学・思考・その他', sources: 18, lastViewed: '2025-12-30T15:33:53Z' },
+      { id: '59c94d9b', title: '声解析とプロトコールで人生を変える', url: 'https://gemini.google.com/notebook/59c94d9b-e361-4916-a25c-0db662848e4c', category: '哲学・思考・その他', sources: 5, lastViewed: '2026-11-16T14:37:30Z' },
+      { id: '06fdcca5', title: '人生を再起動する1日のプロトコル', url: 'https://gemini.google.com/notebook/06fdcca5-f04d-4c94-ac91-543eb579c5b0', category: '哲学・思考・その他', sources: 2, lastViewed: '2026-11-16T14:37:09Z' },
+      { id: 'e8e7deb5', title: 'フィジカルAIの衝撃：2026年産業革命の全貌', url: 'https://gemini.google.com/notebook/e8e7deb5-90b5-4ca6-825c-355de8e2c25b', category: '哲学・思考・その他', sources: 32, lastViewed: '2026-01-11T16:43:18Z' },
+      { id: 'd40ac149', title: 'イシューからはじめよ 知的生産のシンプルな本質', url: 'https://gemini.google.com/notebook/d40ac149-3344-4ecb-ba30-2d6ce20ebdfa', category: '哲学・思考・その他', sources: 1, lastViewed: '2026-01-09T08:58:05Z' },
+      { id: 'cdfc1fa4', title: '世界一やさしい「才能」の見つけ方', url: 'https://gemini.google.com/notebook/cdfc1fa4-6237-4dee-8e84-4684cee4b43e', category: '哲学・思考・その他', sources: 1, lastViewed: '2026-03-08T13:30:44Z' },
+      { id: 'c68a716c', title: '偏屈のすすめ: 唯一無二の創造性', url: 'https://gemini.google.com/notebook/c68a716c-e887-435b-b82f-01e1e47d59f7', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-11-08T13:37:06Z' },
+      { id: '64d01d4a', title: '頭のなかの言語化を導く対話術とノート術', url: 'https://gemini.google.com/notebook/64d01d4a-012b-428e-9ff5-b32876914bd0', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-11-03T13:25:14Z' },
+      { id: 'bb3ce665', title: '結果を変える最強の勉強法', url: 'https://gemini.google.com/notebook/bb3ce665-4e31-45ff-80b7-9008c5ca44be', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-10-16T05:29:05Z' },
+      { id: 'f0410dd4', title: 'スマホ時代の孤独と哲学', url: 'https://gemini.google.com/notebook/f0410dd4-434b-4ed6-9c97-3ddbc91b863d', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-09-12T15:13:47Z' },
+      { id: '1230efed', title: 'Deep Work: Focused Success in a Distracted World', url: 'https://gemini.google.com/notebook/1230efed-a5e0-4661-801b-7f09ed6bdd1f', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-08-22T20:12:31Z' },
+      { id: '298ad7d6', title: '奪われた集中力', url: 'https://gemini.google.com/notebook/298ad7d6-5e46-4216-b9a1-98fbe6e5eabb', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-07-26T12:32:59Z' },
+      { id: 'b9ea65be', title: '歩くという哲学 - フレデリック・グロ', url: 'https://gemini.google.com/notebook/b9ea65be-bfac-4544-a783-4d1efa18d4ca', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-07-24T08:06:38Z' },
+      { id: 'c82b56fa', title: 'The Mystery of "Me": Psychology and Personality', url: 'https://gemini.google.com/notebook/c82b56fa-a500-4e0a-9e22-631c3c8332a2', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-07-22T13:32:36Z' },
+      { id: 'd97f6ef8', title: "Schumpeter: Capitalism's Prophetic Genius", url: 'https://gemini.google.com/notebook/d97f6ef8-cfb7-4f36-8abd-6fa13bb7ea6a', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-07-22T11:21:34Z' },
+      { id: 'fbc42411', title: 'Democracy in the Digital Age: A Plurality Vision', url: 'https://gemini.google.com/notebook/fbc42411-b47c-492c-9ad4-f2c514c62520', category: '哲学・思考・その他', sources: 1, lastViewed: '2025-07-09T06:12:33Z' },
+    ];
+    // === NOTEBOOKS_DATA_END ===
+
+    const state = {
+      activeCategory: 'ALL',
+      searchQuery: '',
+      sortBy: 'smart',
+      pinnedOnly: false,
+      quickCollapsed: false,
+      mobileCatOpen: true,
+      theme: 'light', // Editorial paper-and-ink default
+      usage: {},
+      customNotebooks: [],
+    };
+
+    function loadPersisted() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed.usage && typeof parsed.usage === 'object') state.usage = parsed.usage;
+        if (Array.isArray(parsed.customNotebooks)) state.customNotebooks = parsed.customNotebooks;
+        if (parsed.theme === 'light' || parsed.theme === 'dark') state.theme = parsed.theme;
+      } catch (e) {
+        // Ignore storage restrictions
+      }
+    }
+
+    function savePersisted() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          usage: state.usage,
+          customNotebooks: state.customNotebooks,
+          theme: state.theme,
+        }));
+      } catch (e) {
+        // Ignore storage restrictions
+      }
+    }
+
+    function getAllNotebooks() {
+      return [...state.customNotebooks, ...DEFAULT_NOTEBOOKS].map((nb) => {
+        const meta = state.usage[nb.id] || { clicks: 0, lastClicked: null, pinned: false };
+        const effectiveTime = meta.lastClicked || nb.lastViewed || '2025-01-01T00:00:00Z';
+        return {
+          ...nb,
+          clicks: meta.clicks || 0,
+          lastClicked: meta.lastClicked || null,
+          pinned: Boolean(meta.pinned),
+          effectiveTime,
+          effectiveTs: Date.parse(effectiveTime) || 0,
+        };
+      });
+    }
+
+    function computeSmartScore(nb) {
+      const pinBonus = nb.pinned ? 1e15 : 0;
+      const clickBonus = nb.clicks * 1e11;
+      return pinBonus + clickBonus + nb.effectiveTs;
+    }
+
+    function sortNotebooks(list, mode) {
+      const copy = [...list];
+      if (mode === 'smart') {
+        copy.sort((a, b) => computeSmartScore(b) - computeSmartScore(a));
+      } else if (mode === 'clicks') {
+        copy.sort((a, b) => (b.clicks - a.clicks) || (b.effectiveTs - a.effectiveTs));
+      } else if (mode === 'recent') {
+        copy.sort((a, b) => b.effectiveTs - a.effectiveTs);
+      } else if (mode === 'sources') {
+        copy.sort((a, b) => (b.sources - a.sources) || (b.effectiveTs - a.effectiveTs));
+      }
+      return copy;
+    }
+
+    function formatShortDate(iso) {
+      if (!iso) return '----/--/--';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '----/--/--';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}.${m}.${day}`;
+    }
+
+    function getShortCategory(catId) {
+      const found = CATEGORIES.find((c) => c.id === catId);
+      return found ? found.short : catId;
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        el.classList.add('hidden');
+      }, 2400);
+    }
+
+    function recordClick(id) {
+      const prev = state.usage[id] || { clicks: 0, lastClicked: null, pinned: false };
+      state.usage[id] = {
+        ...prev,
+        clicks: (prev.clicks || 0) + 1,
+        lastClicked: new Date().toISOString(),
+      };
+      savePersisted();
+      render();
+    }
+
+    function togglePin(id) {
+      const prev = state.usage[id] || { clicks: 0, lastClicked: null, pinned: false };
+      const nextPinned = !prev.pinned;
+      state.usage[id] = { ...prev, pinned: nextPinned };
+      savePersisted();
+      showToast(nextPinned ? '書架を上位に固定しました' : '固定を解除しました');
+      render();
+    }
+
+    function renderCategoryBar(all) {
+      const bar = document.getElementById('categoryBar');
+      bar.classList.toggle('hidden', !state.mobileCatOpen && window.innerWidth < 1024);
+
+      const counts = { ALL: all.length };
+      all.forEach((nb) => {
+        counts[nb.category] = (counts[nb.category] || 0) + 1;
+      });
+
+      bar.innerHTML = CATEGORIES.map((cat) => {
+        const active = state.activeCategory === cat.id;
+        const count = counts[cat.id] || 0;
+        const activeCls = active
+          ? 'is-active text-vermilion dark:text-vermilion-dark font-semibold bg-paper-hover/70 dark:bg-night-hover/70'
+          : 'text-ink-muted dark:text-night-muted hover:text-ink-main dark:hover:text-night-ink hover:bg-paper-hover/40 dark:hover:bg-night-hover/40';
+        return `
+          <button
+            type="button"
+            data-cat="${escapeHtml(cat.id)}"
+            class="cat-btn cat-pill w-full flex items-center justify-between gap-2 pl-3 pr-2 py-1.5 text-left text-xs ${activeCls}"
+          >
+            <span class="truncate">${escapeHtml(cat.label)}</span>
+            <span class="font-mono text-[11px] tabular opacity-80">${String(count).padStart(2, '0')}</span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function createQuickRowHtml(nb, rank) {
+      const pinLabel = nb.pinned ? '固定中' : '固定';
+      const pinCls = nb.pinned
+        ? 'text-vermilion dark:text-vermilion-dark font-medium'
+        : 'text-ink-faint dark:text-night-muted/60 hover:text-ink-main dark:hover:text-night-ink';
+      const clicksText = nb.clicks > 0 ? `${nb.clicks}回` : formatShortDate(nb.effectiveTime);
+
+      return `
+        <div class="index-row ${nb.pinned ? 'is-pinned' : ''} flex items-baseline justify-between gap-3 pl-3 pr-1 py-2.5 border-b border-paper-border dark:border-night-border hover:bg-paper-hover/70 dark:hover:bg-night-hover/70">
+          <a
+            href="${escapeHtml(nb.url)}"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-open-id="${escapeHtml(nb.id)}"
+            class="nb-open-link flex items-baseline gap-2.5 min-w-0 flex-1 group"
+          >
+            <span class="font-mono text-[11px] text-ink-faint dark:text-night-muted/70 tabular shrink-0">${String(rank).padStart(2, '0')}</span>
+            <span class="font-serif text-sm font-semibold leading-snug truncate group-hover:text-vermilion dark:group-hover:text-vermilion-dark transition">${escapeHtml(nb.title)}</span>
+          </a>
+          <div class="flex items-baseline gap-2.5 shrink-0 font-mono text-[11px] tabular">
+            <span class="${nb.clicks > 0 ? 'text-vermilion dark:text-vermilion-dark font-medium' : 'text-ink-muted dark:text-night-muted'}">${clicksText}</span>
+            <button
+              type="button"
+              data-pin-id="${escapeHtml(nb.id)}"
+              class="nb-pin-btn text-[11px] transition whitespace-nowrap ${pinCls}"
+            >${pinLabel}</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function createIndexRowHtml(nb) {
+      const pinLabel = nb.pinned ? '固定中' : '固定';
+      const pinCls = nb.pinned
+        ? 'text-vermilion dark:text-vermilion-dark font-medium'
+        : 'text-ink-faint dark:text-night-muted/60 hover:text-ink-main dark:hover:text-night-ink';
+      const clicksBadge = nb.clicks > 0
+        ? `<span class="font-mono text-[11px] text-vermilion dark:text-vermilion-dark tabular ml-2">[${nb.clicks}回]</span>`
+        : '';
+
+      return `
+        <div class="index-row ${nb.pinned ? 'is-pinned' : ''} pl-3 pr-1 py-3 flex flex-col sm:flex-row sm:items-baseline justify-between gap-1.5 sm:gap-4 hover:bg-paper-hover/70 dark:hover:bg-night-hover/70">
+          <a
+            href="${escapeHtml(nb.url)}"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-open-id="${escapeHtml(nb.id)}"
+            class="nb-open-link min-w-0 flex-1 group"
+          >
+            <span class="font-serif text-[15px] font-medium leading-snug group-hover:text-vermilion dark:group-hover:text-vermilion-dark transition">${escapeHtml(nb.title)}</span>${clicksBadge}
+          </a>
+
+          <div class="flex items-center sm:grid sm:grid-cols-[6.5rem_4.5rem_5.5rem_3.5rem] gap-3 font-mono text-[11px] text-ink-muted dark:text-night-muted sm:text-right tabular shrink-0">
+            <span class="truncate">${escapeHtml(getShortCategory(nb.category))}</span>
+            <span>${nb.sources}件</span>
+            <span>${formatShortDate(nb.effectiveTime)}</span>
+            <button
+              type="button"
+              data-pin-id="${escapeHtml(nb.id)}"
+              class="nb-pin-btn text-right transition whitespace-nowrap ${pinCls}"
+            >${pinLabel}</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function applyTheme() {
+      const root = document.documentElement;
+      const btn = document.getElementById('btnTheme');
+      if (state.theme === 'dark') {
+        root.classList.add('dark');
+        btn.textContent = '紙面モード';
+      } else {
+        root.classList.remove('dark');
+        btn.textContent = '夜モード';
+      }
+    }
+
+    function render() {
+      applyTheme();
+      const all = getAllNotebooks();
+      renderCategoryBar(all);
+
+      const pinnedCount = all.filter((n) => n.pinned).length;
+      document.getElementById('pinnedCountBadge').textContent = String(pinnedCount);
+
+      // Top 8 Quick Shelf
+      const quickShelfSection = document.getElementById('quickShelfSection');
+      const quickShelfGrid = document.getElementById('quickShelfGrid');
+      const quickToggleBtn = document.getElementById('btnToggleQuick');
+      const top8 = sortNotebooks(all, 'smart').slice(0, 8);
+      document.getElementById('quickShelfBadge').textContent = pinnedCount > 0 ? `固定 ${pinnedCount}件 / TOP 8` : 'TOP 8';
+
+      if (state.searchQuery.trim() !== '' || state.activeCategory !== 'ALL' || state.pinnedOnly) {
+        quickShelfSection.classList.add('hidden');
+      } else {
+        quickShelfSection.classList.remove('hidden');
+        if (state.quickCollapsed) {
+          quickShelfGrid.classList.add('hidden');
+          quickToggleBtn.textContent = '開く';
+        } else {
+          quickShelfGrid.classList.remove('hidden');
+          quickToggleBtn.textContent = '折りたたむ';
+          quickShelfGrid.innerHTML = top8.map((nb, idx) => createQuickRowHtml(nb, idx + 1)).join('');
+        }
+      }
+
+      // Main List Filtering & Sorting
+      const q = state.searchQuery.trim().toLowerCase();
+      let filtered = all.filter((nb) => {
+        if (state.activeCategory !== 'ALL' && nb.category !== state.activeCategory) return false;
+        if (state.pinnedOnly && !nb.pinned) return false;
+        if (q) {
+          const hay = `${nb.title} ${nb.category}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      filtered = sortNotebooks(filtered, state.sortBy);
+
+      const mainTitle = state.activeCategory === 'ALL' ? 'すべての書架' : state.activeCategory;
+      document.getElementById('mainGridTitle').textContent = mainTitle;
+      document.getElementById('resultCount').textContent = `${filtered.length} 件`;
+
+      const grid = document.getElementById('notebookGrid');
+      const emptyState = document.getElementById('emptyState');
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '';
+        emptyState.classList.remove('hidden');
+      } else {
+        emptyState.classList.add('hidden');
+        grid.innerHTML = filtered.map((nb) => createIndexRowHtml(nb)).join('');
+      }
+    }
+
+    // Event delegation
+    document.addEventListener('click', (e) => {
+      const catBtn = e.target.closest('.cat-pill');
+      if (catBtn) {
+        state.activeCategory = catBtn.dataset.cat;
+        render();
+        return;
+      }
+
+      const pinBtn = e.target.closest('.nb-pin-btn');
+      if (pinBtn) {
+        e.preventDefault();
+        togglePin(pinBtn.dataset.pinId);
+        return;
+      }
+
+      const openLink = e.target.closest('.nb-open-link');
+      if (openLink) {
+        recordClick(openLink.dataset.openId);
+      }
+    });
+
+    const searchInput = document.getElementById('searchInput');
+    const btnClearSearch = document.getElementById('btnClearSearch');
+    searchInput.addEventListener('input', (e) => {
+      state.searchQuery = e.target.value;
+      btnClearSearch.classList.toggle('hidden', state.searchQuery === '');
+      render();
+    });
+
+    btnClearSearch.addEventListener('click', () => {
+      state.searchQuery = '';
+      searchInput.value = '';
+      btnClearSearch.classList.add('hidden');
+      render();
+    });
+
+    document.getElementById('sortSelect').addEventListener('change', (e) => {
+      state.sortBy = e.target.value;
+      render();
+    });
+
+    document.getElementById('chkPinnedOnly').addEventListener('change', (e) => {
+      state.pinnedOnly = e.target.checked;
+      render();
+    });
+
+    document.getElementById('btnToggleQuick').addEventListener('click', () => {
+      state.quickCollapsed = !state.quickCollapsed;
+      render();
+    });
+
+    document.getElementById('btnMobileCatToggle').addEventListener('click', () => {
+      state.mobileCatOpen = !state.mobileCatOpen;
+      render();
+    });
+
+    document.getElementById('btnTheme').addEventListener('click', () => {
+      state.theme = state.theme === 'dark' ? 'light' : 'dark';
+      savePersisted();
+      render();
+    });
+
+    document.getElementById('btnResetStats').addEventListener('click', () => {
+      Object.keys(state.usage).forEach((k) => {
+        state.usage[k] = { ...state.usage[k], clicks: 0, lastClicked: null };
+      });
+      savePersisted();
+      showToast('利用回数をリセットしました（固定は維持されます）');
+      render();
+    });
+
+    document.getElementById('btnExport').addEventListener('click', () => {
+      const payload = JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        usage: state.usage,
+        customNotebooks: state.customNotebooks,
+      }, null, 2);
+      const blob = new Blob([payload], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'notebooklm_launcher_backup.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showToast('ピン留め・利用回数データをJSON保存しました');
+    });
+
+    const importFileInput = document.getElementById('importFileInput');
+    document.getElementById('btnImport').addEventListener('click', () => {
+      importFileInput.value = '';
+      importFileInput.click();
+    });
+
+    importFileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(String(reader.result || '{}'));
+          if (!parsed || (typeof parsed.usage !== 'object' && !Array.isArray(parsed.customNotebooks))) {
+            showToast('読み込めない形式のJSONファイルです');
+            return;
+          }
+          if (parsed.usage && typeof parsed.usage === 'object') {
+            Object.entries(parsed.usage).forEach(([id, incoming]) => {
+              if (!incoming || typeof incoming !== 'object') return;
+              const prev = state.usage[id] || { clicks: 0, lastClicked: null, pinned: false };
+              const prevTs = Date.parse(prev.lastClicked || '') || 0;
+              const incTs = Date.parse(incoming.lastClicked || '') || 0;
+              state.usage[id] = {
+                clicks: Math.max(Number(prev.clicks) || 0, Number(incoming.clicks) || 0),
+                lastClicked: incTs >= prevTs ? (incoming.lastClicked || prev.lastClicked) : prev.lastClicked,
+                pinned: Boolean(incoming.pinned),
+              };
+            });
+          }
+          if (Array.isArray(parsed.customNotebooks)) {
+            const existingUrls = new Set(getAllNotebooks().map((n) => n.url));
+            parsed.customNotebooks.forEach((nb) => {
+              if (nb && nb.title && nb.url && !existingUrls.has(nb.url)) {
+                state.customNotebooks.unshift({
+                  id: nb.id || ('custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)),
+                  title: String(nb.title),
+                  url: String(nb.url),
+                  category: String(nb.category || '統括・生活'),
+                  sources: Number(nb.sources) || 1,
+                  lastViewed: nb.lastViewed || new Date().toISOString(),
+                });
+                existingUrls.add(nb.url);
+              }
+            });
+          }
+          savePersisted();
+          render();
+          showToast('JSONを読み込み、ピン留めと利用回数を反映しました');
+        } catch (err) {
+          showToast('JSONの解析に失敗しました');
+        }
+      };
+      reader.readAsText(file, 'utf-8');
+    });
+
+    // Modal handlers
+    const addModal = document.getElementById('addModal');
+    function openModal() {
+      addModal.classList.remove('hidden');
+      document.getElementById('inputTitle').focus();
+    }
+    function closeModal() {
+      addModal.classList.add('hidden');
+      document.getElementById('addNotebookForm').reset();
+    }
+
+    document.getElementById('btnAddNotebook').addEventListener('click', openModal);
+    document.getElementById('btnCloseModal').addEventListener('click', closeModal);
+    document.getElementById('btnCancelModal').addEventListener('click', closeModal);
+    addModal.addEventListener('click', (e) => {
+      if (e.target === addModal) closeModal();
+    });
+
+    document.getElementById('addNotebookForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const title = document.getElementById('inputTitle').value.trim();
+      const url = document.getElementById('inputUrl').value.trim();
+      const category = document.getElementById('inputCategory').value;
+      if (!title || !url) return;
+
+      const id = 'custom_' + Date.now();
+      state.customNotebooks.unshift({
+        id,
+        title,
+        url,
+        category,
+        sources: 1,
+        lastViewed: new Date().toISOString(),
+      });
+      state.usage[id] = { clicks: 1, lastClicked: new Date().toISOString(), pinned: false };
+      savePersisted();
+      closeModal();
+      showToast(`「${title}」を書架に追加しました`);
+      render();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        searchInput.focus();
+      } else if (e.key === 'Escape' && !addModal.classList.contains('hidden')) {
+        closeModal();
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      const bar = document.getElementById('categoryBar');
+      if (window.innerWidth >= 1024) {
+        bar.classList.remove('hidden');
+      }
+    });
+
+    loadPersisted();
+    render();
+  </script>
+</body>
+</html>
